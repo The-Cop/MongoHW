@@ -17,21 +17,20 @@
 package com.mongodb;
 
 import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.Sorts;
 import org.bson.Document;
 import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.UnknownHostException;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
+import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Updates.pull;
 
 public class StudentsDelete {
     private static final Logger logger = LoggerFactory.getLogger("logger");
@@ -39,30 +38,27 @@ public class StudentsDelete {
     public static void main(String[] args) throws UnknownHostException {
         MongoClient client = new MongoClient();
 
-        MongoDatabase database = client.getDatabase("students");
-        final MongoCollection<Document> grades = database.getCollection("grades");
-        List<Document> list = grades.find()
-                .filter(eq("type", "homework"))
-                .sort(Sorts.ascending("student_id", "score"))
-                .into(new ArrayList<Document>());
-
-        List<Entry> el = list.stream()
-                .map(l -> new Entry(l.getObjectId("_id"), l.getDouble("score"), l.getInteger("student_id")))
-                .collect(Collectors.toList());
-        el.forEach(l -> System.err.println(l));
-
-        System.err.println("===================================================================================================================================");
-        Map<Long, Entry> mins = new LinkedHashMap<>();
-        el.forEach(l -> {
-            if (!mins.containsKey(l.studentId)) {
-                mins.put(l.studentId, l);
-            } else if (mins.get(l.studentId).score > l.score) {
-                mins.put(l.studentId, l);
-            }
-        });
-        mins.forEach((k, v) -> System.err.println(v));
-
-        mins.forEach((k,v)->grades.deleteOne(eq("_id",v.objectId)));
+        MongoDatabase database = client.getDatabase("school");
+        final MongoCollection<Document> students = database.getCollection("students");
+        MongoCursor<Document> cursor = students.find().iterator();
+        while (cursor.hasNext()) {
+            Document student = cursor.next();
+            List<Document> scores = (List<Document>) student.get("scores");
+            Document minHomework = scores.stream()
+                    .filter(s -> "homework".equalsIgnoreCase(s.getString("type")))
+                    .min(Comparator.comparingDouble(s -> s.getDouble("score"))).orElse(null);
+            students.updateOne(
+                    //identify document
+                    new Document("_id", student.get("_id")),
+                    //update
+                    pull("scores",
+                            and(
+                                    eq("type", minHomework.get("type")),
+                                    eq("score", minHomework.get("score"))
+                            )
+                    )
+            );
+        }
     }
 
     private final static class Entry {
