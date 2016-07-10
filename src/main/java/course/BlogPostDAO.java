@@ -102,5 +102,10 @@ public class BlogPostDAO {
         // on the post identified by `permalink`.
         //
         //
+        postsCollection.updateOne(
+                eq("permalink", permalink),
+
+                new Document("$inc", new Document("comments."+ordinal+".num_likes", 1))
+        );
     }
 }
